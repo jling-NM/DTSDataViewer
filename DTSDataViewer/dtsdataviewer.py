@@ -6,11 +6,11 @@ import os
 import sys
 
 from PyQt5 import QtWidgets, QtGui, QtCore
-from experiment import Experiment
-from plotarea import PlotArea
+from .experiment import Experiment
+from .plotarea import PlotArea
 
 
-__version__ = '1.0.2'
+__version__ = '1.0.3'
 
 
 class GUI(QtWidgets.QMainWindow):
@@ -65,54 +65,6 @@ class GUI(QtWidgets.QMainWindow):
         # options menu
         optMenu = menubar.addMenu('&Options')
 
-        # # overlay option s
-        # # plot filter submenu
-        # self.plotFilterMenu = optMenu.addMenu('Filter Trace Plot:')
-        #
-        # # group so options are exclusive
-        # ag = QtWidgets.QActionGroup(self.plotFilterMenu)
-        # # add menu items
-        # a = ag.addAction(QtWidgets.QAction('Yes', self.plotFilterMenu, checkable=True))
-        # a.setData(True)
-        # if self.plot_filter_data:
-        #     a.setChecked(True)
-        # self.plotFilterMenu.addAction(a)
-        #
-        # a = ag.addAction(QtWidgets.QAction('No', self.plotFilterMenu, checkable=True))
-        # a.setData(False)
-        # if not self.plot_filter_data:
-        #     a.setChecked(True)
-        # self.plotFilterMenu.addAction(a)
-        # self.plotFilterMenu.triggered.connect(self.plotFilterMenu_changed)
-        #
-        # # plot param calculator submenu
-        # self.plotCalculatorMenu = optMenu.addMenu('Calculation Type:')
-        #
-        # # group so options are exclusive
-        # ag = QtWidgets.QActionGroup(self.plotCalculatorMenu)
-        #
-        # # add menu items
-        # a = ag.addAction(QtWidgets.QAction('Basic', self.plotCalculatorMenu, checkable=True))
-        # a.setData('Basic')
-        # if self.plot_calculator == 'Basic':
-        #     a.setChecked(True)
-        # self.plotCalculatorMenu.addAction(a)
-        # self.plotCalculatorMenu.triggered.connect(self.plotCalculatorMenu_changed)
-        #
-        # a = ag.addAction(QtWidgets.QAction('Compatible', self.plotCalculatorMenu, checkable=True))
-        # a.setData('Compatible')
-        # if self.plot_calculator == 'Compatible':
-        #     a.setChecked(True)
-        # self.plotCalculatorMenu.addAction(a)
-        # self.plotCalculatorMenu.triggered.connect(self.plotCalculatorMenu_changed)
-        #
-        # a = ag.addAction(QtWidgets.QAction('Historical', self.plotCalculatorMenu, checkable=True))
-        # a.setData('Historical')
-        # if self.plot_calculator == 'Historical':
-        #     a.setChecked(True)
-        # self.plotCalculatorMenu.addAction(a)
-        # self.plotCalculatorMenu.triggered.connect(self.plotCalculatorMenu_changed)
-
         # plot filter submenu
         self.plotAnnotationMenu = optMenu.addMenu('Annotate Plot:')
 
@@ -137,9 +89,6 @@ class GUI(QtWidgets.QMainWindow):
         appAction = QtWidgets.QAction('Application', self)
         appAction.triggered.connect(self.show_about_app_dlg)
         abtMenu.addAction(appAction)
-        # expAction = QtWidgets.QAction('Current Experiment', self)
-        # expAction.triggered.connect(self.show_about_experiment_dlg)
-        # abtMenu.addAction(expAction)
 
         # create status bar
         self.statusBar()
@@ -163,6 +112,10 @@ class GUI(QtWidgets.QMainWindow):
         aboutDlg.setText("Version: " + __version__)
         aboutDlg.setInformativeText("Click 'Show Details' for a list of changes.")
         aboutDlg.setDetailedText("""Changes:
+=== 1.0.3 ===
+ - High DPI support and better formatting for Windows
+ - Add crosshair coordinate display to plots
+ 
 === 1.0.2 ===
  - Removed cleardepth level. All plot items cleared by default.
  - Rise start and end now identified by 3 stdev instead of CHOP 5% of peak velocity
@@ -390,6 +343,11 @@ class GUI(QtWidgets.QMainWindow):
 
 def main():
     try:
+        # enable highdpi scaling
+        QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling, True)
+        # use highdpi icons
+        QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_UseHighDpiPixmaps, True)
+
         app = QtWidgets.QApplication(sys.argv)
         # set application values once here for QSettings
         app.setOrganizationName("MayerLab")
