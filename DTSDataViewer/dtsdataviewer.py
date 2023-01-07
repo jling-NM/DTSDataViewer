@@ -6,11 +6,11 @@ import os
 import sys
 
 from PyQt5 import QtWidgets, QtGui, QtCore
-from .experiment import Experiment
-from .plotarea import PlotArea
+from experiment import Experiment
+from plotarea import PlotArea
 
 
-__version__ = '1.0.3'
+__version__ = '1.0.4'
 
 
 class GUI(QtWidgets.QMainWindow):
@@ -19,15 +19,12 @@ class GUI(QtWidgets.QMainWindow):
         super().__init__()
 
         # init a default experiment
-        self.plotAnnotationMenu = None
         self.settings = None
-        self.plotCalculatorMenu = None
-        self.plotFilterMenu = None
-        self.plot_filter_data = None
-        self.plot_calculator = None
-        self.plot_annotate = None
-        self.overlayMenu = None
         self.experiment = Experiment()
+        self.plot_annotate = None
+        self.plotAnnotationMenu = None
+        self.plot_cursor_tracks_data = None
+        self.plotCursorTrackDataMenu = None
 
         # get app settings
         self.read_app_settings()
@@ -65,24 +62,41 @@ class GUI(QtWidgets.QMainWindow):
         # options menu
         optMenu = menubar.addMenu('&Options')
 
-        # plot filter submenu
         self.plotAnnotationMenu = optMenu.addMenu('Annotate Plot:')
-
         # group so options are exclusive
         ag = QtWidgets.QActionGroup(self.plotAnnotationMenu)
         # add menu items
-        a = ag.addAction(QtWidgets.QAction('Yes', self.plotAnnotationMenu, checkable=True))
+        a = ag.addAction(QtWidgets.QAction('On', self.plotAnnotationMenu, checkable=True))
         a.setData(True)
         if self.plot_annotate:
             a.setChecked(True)
         self.plotAnnotationMenu.addAction(a)
 
-        a = ag.addAction(QtWidgets.QAction('No', self.plotAnnotationMenu, checkable=True))
+        a = ag.addAction(QtWidgets.QAction('Off', self.plotAnnotationMenu, checkable=True))
         a.setData(False)
         if not self.plot_annotate:
             a.setChecked(True)
         self.plotAnnotationMenu.addAction(a)
         self.plotAnnotationMenu.triggered.connect(self.plotAnnotationMenu_changed)
+
+        #
+        self.plotCursorTrackDataMenu = optMenu.addMenu('Cursor Tracks Data:')
+        # group so options are exclusive
+        ag = QtWidgets.QActionGroup(self.plotCursorTrackDataMenu)
+        # add menu items
+        a = ag.addAction(QtWidgets.QAction('On', self.plotCursorTrackDataMenu, checkable=True))
+        a.setData('x')
+        if self.plot_cursor_tracks_data:
+            a.setChecked(True)
+        self.plotCursorTrackDataMenu.addAction(a)
+
+        a = ag.addAction(QtWidgets.QAction('Off', self.plotCursorTrackDataMenu, checkable=True))
+        a.setData('off')
+        if not self.plot_cursor_tracks_data:
+            a.setChecked(True)
+        self.plotCursorTrackDataMenu.addAction(a)
+        self.plotCursorTrackDataMenu.triggered.connect(self.plotCursorTrackDataMenu_changed)
+
 
         # about menu
         abtMenu = menubar.addMenu('&About')
@@ -112,6 +126,10 @@ class GUI(QtWidgets.QMainWindow):
         aboutDlg.setText("Version: " + __version__)
         aboutDlg.setInformativeText("Click 'Show Details' for a list of changes.")
         aboutDlg.setDetailedText("""Changes:
+=== 1.0.4 ===
+ - Improve settings for Windows
+ - Add menu to toggle cursor tracking on plots
+ 
 === 1.0.3 ===
  - High DPI support and better formatting for Windows
  - Add crosshair coordinate display to plots
@@ -245,21 +263,17 @@ class GUI(QtWidgets.QMainWindow):
         self.plot_area.clear_plot()
         self.setWindowTitle('DTS Data Viewer')
 
-    def plotFilterMenu_changed(self):
+    def plotCursorTrackDataMenu_changed(self):
         """ 
         Connect to Option menu for sensor
         """
-        for action in self.plotFilterMenu.actions():
+        for action in self.plotCursorTrackDataMenu.actions():
             if action.isChecked():
-                self.plot_filter_data = action.data()
-
-    def plotCalculatorMenu_changed(self):
-        """ 
-        Connect to Option menu for sensor
-        """
-        for action in self.plotCalculatorMenu.actions():
-            if action.isChecked():
-                self.plot_calculator = action.data()
+                self.plot_cursor_tracks_data = action.data()
+                # refresh the plot
+                self.plot_area.clear_plot()
+                self.plot_area.plot(self.experiment, self.plot_annotate, self.plot_cursor_tracks_data)
+                self.statusBar().showMessage('Ready')
 
     def plotAnnotationMenu_changed(self):
         for action in self.plotAnnotationMenu.actions():
@@ -267,7 +281,7 @@ class GUI(QtWidgets.QMainWindow):
                 self.plot_annotate = action.data()
                 # refresh the plot
                 self.plot_area.clear_plot()
-                self.plot_area.plot(self.experiment, self.plot_annotate)
+                self.plot_area.plot(self.experiment, self.plot_annotate, self.plot_cursor_tracks_data)
                 self.statusBar().showMessage('Ready')
 
     def load_trace(self):
@@ -285,7 +299,7 @@ class GUI(QtWidgets.QMainWindow):
                 self.plot_area.clear_plot()
 
                 # plot data
-                self.plot_area.plot(self.experiment, self.plot_annotate)
+                self.plot_area.plot(self.experiment, self.plot_annotate, self.plot_cursor_tracks_data)
                 self.statusBar().showMessage('Ready')
 
                 self.setWindowTitle('DTS Data Viewer - ' + self.experiment.get_label())
@@ -307,12 +321,10 @@ class GUI(QtWidgets.QMainWindow):
         self.settings = QtCore.QSettings()
 
         # plot settings
-        # default plot filter
-        self.plot_filter_data = self.settings.value('plot_filter_data', True, type=bool)
-        # default plot calculator
-        self.plot_calculator = self.settings.value('plot_calculator', 'Compatible', type=str)
         # default plot annotation
         self.plot_annotate = self.settings.value('plot_annotate', True, type=bool)
+        # default cursor data track
+        self.plot_cursor_tracks_data = self.settings.value('plot_cursor_tracks_data', 'x', type=str)
         # change to script directory
         script_home = os.path.dirname(os.path.abspath(__file__))
         os.chdir(script_home)
@@ -324,9 +336,8 @@ class GUI(QtWidgets.QMainWindow):
         save app session settings
         """
         # update settings
-        self.settings.setValue('plot_filter_data', self.plot_filter_data)
-        self.settings.setValue('plot_calculator', self.plot_calculator)
         self.settings.setValue('plot_annotate', self.plot_annotate)
+        self.settings.setValue('plot_cursor_tracks_data', self.plot_cursor_tracks_data)
         self.settings.setValue('lastDataPath', self.experiment.lastDataPath)
         # this writes to native storage
         del self.settings

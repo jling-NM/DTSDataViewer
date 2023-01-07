@@ -83,7 +83,7 @@ class AnnotatedCursor(Cursor):
         # Saves ax as class attribute.
         super().__init__(**cursorargs)
 
-        if self.dataaxis is not None:
+        if self.dataaxis == 'x' or self.dataaxis == 'y':
             # Default value for position of text.
             self.set_position(self.line.get_xdata()[0], self.line.get_ydata()[0])
 
@@ -94,7 +94,8 @@ class AnnotatedCursor(Cursor):
             "0, 0",
             animated=bool(self.useblit),
             visible=False, **textprops,
-            snap=True
+            snap=True,
+            bbox=dict(boxstyle='square', fc=textprops['backgroundcolor'], ec='none', pad=0.3)
         )
         # The position at which the cursor was last drawn
         self.lastdrawnplotpoint = None
@@ -120,10 +121,7 @@ class AnnotatedCursor(Cursor):
             super().onmove(event)
             return
 
-        if self.dataaxis is None:
-            # crosshairs not locked to plot
-            plotpoint = (event.xdata, event.ydata)
-        else:
+        if self.dataaxis == 'x' or self.dataaxis == 'y':
             # crosshairs locked to plot
             # Get the coordinates, which should be displayed as text,
             # if the event coordinates are valid.
@@ -138,6 +136,10 @@ class AnnotatedCursor(Cursor):
                 if plotpoint is not None:
                     event.xdata = plotpoint[0]
                     event.ydata = plotpoint[1]
+
+        else:
+            # crosshairs not locked to plot
+            plotpoint = (event.xdata, event.ydata)
 
         # If the plotpoint is given, compare to last drawn plotpoint and
         # return if they are the same.
@@ -291,7 +293,6 @@ class PlotArea(QtWidgets.QVBoxLayout):
 
         self.current_sample_rate = None
         self.underlay_peak_index = None
-        self.plot_annotate = None
         self.fig = Figure((5.0, 4.0), facecolor='#e2e2e2', edgecolor=None, frameon=True)
         self.canvas = FigureCanvas(self.fig)
         self.canvas.setParent(parent)
@@ -307,6 +308,9 @@ class PlotArea(QtWidgets.QVBoxLayout):
         # work.
         self.axes = self.fig.subplots(nrows=4, ncols=2, sharex=True, sharey=False)
         (row_count, col_count) = self.axes.shape
+
+        # annotated cursors reference
+        self.cursors = np.empty(self.axes.shape, dtype=AnnotatedCursor)
 
         # independent scaled plot object
         self.y2 = None
@@ -345,7 +349,7 @@ class PlotArea(QtWidgets.QVBoxLayout):
         # this handles suptitle well and other text
         self.fig.subplots_adjust(top=0.938, bottom=0.061, left=0.036, right=0.985, hspace=0.187, wspace=0.094)
 
-    def plot(self, experiment, plot_annotate):
+    def plot(self, experiment, plot_annotate, plot_cursor_tracks_data):
         """ new way of plotting
 
             0,0 = head axis 1
@@ -400,13 +404,6 @@ class PlotArea(QtWidgets.QVBoxLayout):
 
         min_y = -150
         max_y = 350
-        # x_tick_loc = np.arange(0,
-        #                        (int(experiment.channel_data[0].meta_data.sample_rate_hz / 8) +
-        #                         int((experiment.channel_data[0].meta_data.sample_rate_hz / 8) / 5)
-        #                         ),
-        #                        int((experiment.channel_data[0].meta_data.sample_rate_hz / 8) / 5)
-        #                        )
-
         x_tick_loc = list(map(lambda x: x/(experiment.channel_data[0].meta_data.sample_rate_hz/1000), np.arange(0,
                                                                                                                 (int(experiment.channel_data[0].meta_data.sample_rate_hz / 8) +
                                                                                                                  int((experiment.channel_data[0].meta_data.sample_rate_hz / 8) / 5)
@@ -450,17 +447,18 @@ class PlotArea(QtWidgets.QVBoxLayout):
                     [(head_summary.rise_start_index-plot_x_start)/(experiment.channel_data[0].meta_data.sample_rate_hz/1000), (head_summary.peak_index-plot_x_start)/(experiment.channel_data[0].meta_data.sample_rate_hz/1000), (head_summary.rise_end_index-plot_x_start)/(experiment.channel_data[0].meta_data.sample_rate_hz/1000)],
                     [y_data[head_summary.rise_start_index-plot_x_start], y_data[head_summary.peak_index-plot_x_start], y_data[head_summary.rise_end_index-plot_x_start]],
                     '.',
-                    markersize='5',
+                    markersize='4',
                     color="red"
                 )
 
             self.axes[0, 0].add_artist(self.get_summary_box(head_summary))
 
         # animated cursor visible
-        cursor00 = AnnotatedCursor(
+        self.cursors[0, 0] = AnnotatedCursor(
             line=self.axes[0, 0].lines[0],
+            color='#000000',
             numberformat="{:0.0f} ms; {:0.2f} rad/s",
-            dataaxis=None,
+            dataaxis=plot_cursor_tracks_data,
             textprops={'color': '#000000', 'fontweight': 'normal', 'fontsize': 'small', 'backgroundcolor': '#F3F3F3'},
             ax=self.axes[0, 0],
             useblit=True,
@@ -488,10 +486,11 @@ class PlotArea(QtWidgets.QVBoxLayout):
         self.axes[1, 0].format_coord = self.format_coord
 
         # animated cursor visible
-        cursor10 = AnnotatedCursor(
+        self.cursors[1, 0] = AnnotatedCursor(
             line=self.axes[1, 0].lines[0],
+            color='#000000',
             numberformat="{:0.0f} ms; {:0.2f} rad/s",
-            dataaxis=None,
+            dataaxis=plot_cursor_tracks_data,
             textprops={'color': '#000000', 'fontweight': 'normal', 'fontsize': 'small', 'backgroundcolor': '#F3F3F3'},
             ax=self.axes[1, 0],
             useblit=True,
@@ -516,10 +515,11 @@ class PlotArea(QtWidgets.QVBoxLayout):
         self.axes[2, 0].format_coord = self.format_coord
 
         # animated cursor visible
-        cursor20 = AnnotatedCursor(
+        self.cursors[2, 0] = AnnotatedCursor(
             line=self.axes[2, 0].lines[0],
+            color='#000000',
             numberformat="{:0.0f} ms; {:0.2f} rad/s",
-            dataaxis=None,
+            dataaxis=plot_cursor_tracks_data,
             textprops={'color': '#000000', 'fontweight': 'normal', 'fontsize': 'small', 'backgroundcolor': '#F3F3F3'},
             ax=self.axes[2, 0],
             useblit=True,
@@ -553,17 +553,18 @@ class PlotArea(QtWidgets.QVBoxLayout):
                     [(head_resultant_summary.rise_start_index-plot_x_start)/(experiment.channel_data[0].meta_data.sample_rate_hz/1000), (head_resultant_summary.peak_index-plot_x_start)/(experiment.channel_data[0].meta_data.sample_rate_hz/1000), (head_resultant_summary.rise_end_index-plot_x_start)/(experiment.channel_data[0].meta_data.sample_rate_hz/1000)],
                     [head_resultant[head_resultant_summary.rise_start_index], head_resultant[head_resultant_summary.peak_index], head_resultant[head_resultant_summary.rise_end_index]],
                     '.',
-                    markersize='5',
+                    markersize='4',
                     color="#000000"
                 )
 
             self.axes[3, 0].add_artist(self.get_summary_box(head_resultant_summary))
 
         # animated cursor visible
-        cursor30 = AnnotatedCursor(
+        self.cursors[3, 0] = AnnotatedCursor(
             line=self.axes[3, 0].lines[0],
+            color='#000000',
             numberformat="{:0.0f} ms; {:0.2f} rad/s",
-            dataaxis=None,
+            dataaxis=plot_cursor_tracks_data,
             textprops={'color': '#000000', 'fontweight': 'normal', 'fontsize': 'small', 'backgroundcolor': '#F3F3F3'},
             ax=self.axes[3, 0],
             useblit=True,
@@ -591,17 +592,18 @@ class PlotArea(QtWidgets.QVBoxLayout):
                     [(machine_summary.rise_start_index-plot_x_start)/(experiment.channel_data[0].meta_data.sample_rate_hz/1000), (machine_summary.peak_index-plot_x_start)/(experiment.channel_data[0].meta_data.sample_rate_hz/1000), (machine_summary.rise_end_index-plot_x_start)/(experiment.channel_data[0].meta_data.sample_rate_hz/1000)],
                     [y_data[machine_summary.rise_start_index-plot_x_start], y_data[machine_summary.peak_index-plot_x_start], y_data[machine_summary.rise_end_index-plot_x_start]],
                     '.',
-                    markersize='5',
+                    markersize='4',
                     color="red"
                 )
 
             self.axes[0, 1].add_artist(self.get_summary_box(machine_summary))
 
         # animated cursor visible
-        cursor01 = AnnotatedCursor(
+        self.cursors[0, 1] = AnnotatedCursor(
             line=self.axes[0, 1].lines[0],
+            color='#000000',
             numberformat="{:0.0f} ms; {:0.2f} rad/s",
-            dataaxis=None,
+            dataaxis=plot_cursor_tracks_data,
             textprops={'color': '#000000', 'fontweight': 'normal', 'fontsize': 'small', 'backgroundcolor': '#F3F3F3'},
             ax=self.axes[0, 1],
             useblit=True,
@@ -631,16 +633,17 @@ class PlotArea(QtWidgets.QVBoxLayout):
         self.axes[1, 1].format_coord = lambda x, y: '{:0.0f} ms'.format(x) + ', ' + '{:0.2f} g'.format(y)
 
         # animated cursor visible
-        cursor11 = AnnotatedCursor(
+        self.cursors[1, 1] = AnnotatedCursor(
             line=self.axes[1, 1].lines[0],
+            color='#000000',
             numberformat="{:0.0f} ms; {:0.2f} g",
-            dataaxis=None,
+            dataaxis='off',
             textprops={'color': '#000000', 'fontweight': 'normal', 'fontsize': 'small', 'backgroundcolor': '#F3F3F3'},
             ax=self.axes[1, 1],
             useblit=True,
             linewidth=0.5, linestyle='dotted')
 
-        self.axes[1, 1].legend(fontsize=self.gui_axes_fontsize)
+        self.axes[1, 1].legend(fontsize=self.gui_axes_fontsize, loc='upper right')
 
         ##############################################################################################################
         # head primary plotted with head resultant
@@ -663,16 +666,17 @@ class PlotArea(QtWidgets.QVBoxLayout):
         self.axes[2, 1].format_coord = self.format_coord
 
         # animated cursor visible
-        cursor21 = AnnotatedCursor(
+        self.cursors[2, 1] = AnnotatedCursor(
             line=self.axes[2, 1].lines[0],
+            color='#000000',
             numberformat="{:0.0f} ms; {:0.2f} rad/s",
-            dataaxis=None,
+            dataaxis='off',
             textprops={'color': '#000000', 'fontweight': 'normal', 'fontsize': 'small', 'backgroundcolor': '#F3F3F3'},
             ax=self.axes[2, 1],
             useblit=True,
             linewidth=0.5, linestyle='dotted')
 
-        self.axes[2, 1].legend(fontsize=self.gui_axes_fontsize)
+        self.axes[2, 1].legend(fontsize=self.gui_axes_fontsize, loc='upper right')
 
         ##############################################################################################################
         # machine primary plotted with head resultant
@@ -695,16 +699,17 @@ class PlotArea(QtWidgets.QVBoxLayout):
         self.axes[3, 1].format_coord = self.format_coord
 
         # animated cursor visible
-        cursor31 = AnnotatedCursor(
+        self.cursors[3, 1] = AnnotatedCursor(
             line=self.axes[3, 1].lines[0],
+            color='#000000',
             numberformat="{:0.0f} ms; {:0.2f} rad/s",
-            dataaxis=None,
+            dataaxis='off',
             textprops={'color': '#000000', 'fontweight': 'normal', 'fontsize': 'small', 'backgroundcolor': '#F3F3F3'},
             ax=self.axes[3, 1],
             useblit=True,
             linewidth=0.5, linestyle='dotted')
 
-        self.axes[3, 1].legend(fontsize=self.gui_axes_fontsize)
+        self.axes[3, 1].legend(fontsize=self.gui_axes_fontsize, loc='upper right')
 
         # add code version to plot. Retreive from caller
         daq_version_str = 'Version: ' + inspect.currentframe().f_back.f_globals['__version__']
@@ -712,7 +717,8 @@ class PlotArea(QtWidgets.QVBoxLayout):
                       transform=self.fig.transFigure)
 
         # adjust layout
-        self.fig.subplots_adjust(top=0.938, bottom=0.061, left=0.036, right=0.985, hspace=0.187, wspace=0.094)
+        # self.fig.subplots_adjust(top=0.938, bottom=0.061, left=0.036, right=0.985, hspace=0.187, wspace=0.094)
+        self.fig.subplots_adjust(top=0.938, bottom=0.066, left=0.041, right=0.99, hspace=0.169, wspace=0.119)
 
         # refresh canvas so plot is updated
         self.canvas.draw()
@@ -797,4 +803,4 @@ class PlotArea(QtWidgets.QVBoxLayout):
         return anchored_text
 
     def format_coord(self, x, y):
-        return '{:0.0f} ms'.format(x) + ', ' + '{:0.2f} rad/s'.format(y)
+        return '{:0.0f} ms'.format(x) + '; ' + '{:0.2f} rad/s'.format(y)
