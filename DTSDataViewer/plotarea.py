@@ -782,8 +782,9 @@ class PlotArea(QtWidgets.QVBoxLayout):
         """
         from matplotlib.offsetbox import AnchoredText
 
-        summary_txt = "{}{:0.2f} ${}$\n{}{:0.2f} ${}$  {}{:0.2f} ${}$\n{}{:0.2f} ${}$  {}{:0.2f} ${}$".format(
+        summary_txt = "{}{:0.2f} ${}$   {}{:0.2f}\n{}{:0.2f} ${}$  {}{:0.2f} ${}$\n{}{:0.2f} ${}$  {}{:0.2f} ${}$".format(
             'Peak: ', summary.peak_vel.value, summary.peak_vel.unit,
+            'Slope: ', summary.rise_to_peak_slope,
             'Acc: ', summary.time_to_peak.value, summary.time_to_peak.unit,
             'Dec: ', summary.decel_time.value, summary.decel_time.unit,
             'Fwhm: ', summary.fwhm.value, summary.fwhm.unit,

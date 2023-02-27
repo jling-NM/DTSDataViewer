@@ -6,11 +6,11 @@ import os
 import sys
 
 from PyQt5 import QtWidgets, QtGui, QtCore
-from experiment import Experiment
-from plotarea import PlotArea
+from .experiment import Experiment
+from .plotarea import PlotArea
 
 
-__version__ = '1.0.4'
+__version__ = '1.0.5'
 
 
 class GUI(QtWidgets.QMainWindow):
