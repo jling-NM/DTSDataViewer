@@ -10,9 +10,9 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 from matplotlib.ticker import NullLocator
-from matplotlib.widgets import AxesWidget, Cursor
-import matplotlib.ticker as mticker
+from matplotlib.widgets import Cursor
 from dts_file_reader import slice
+from .experiment import Experiment
 
 
 class AnnotatedCursor(Cursor):
@@ -291,12 +291,16 @@ class PlotArea(QtWidgets.QVBoxLayout):
     def __init__(self, parent=None):
         super(PlotArea, self).__init__()
 
+        # reference for experiment - 20230603
+        self.experiment = Experiment()
+
         self.current_sample_rate = None
         self.underlay_peak_index = None
         self.fig = Figure((5.0, 4.0), facecolor='#e2e2e2', edgecolor=None, frameon=True)
         self.canvas = FigureCanvas(self.fig)
         self.canvas.setParent(parent)
-        # self.fig.canvas.mpl_connect('draw_event', self.on_draw)
+        # connect button event to callback for manual user peak selection
+        self.fig.canvas.mpl_connect('button_release_event', self.user_peak_selected)
         self.gui_axes_fontsize = 'small'
 
         # Create the navigation toolbar, tied to the canvas
@@ -350,7 +354,7 @@ class PlotArea(QtWidgets.QVBoxLayout):
         self.fig.subplots_adjust(top=0.938, bottom=0.061, left=0.036, right=0.985, hspace=0.187, wspace=0.094)
 
     def plot(self, experiment, plot_annotate, plot_cursor_tracks_data):
-        """ new way of plotting
+        """ plotting
 
             0,0 = head axis 1
             1,0 = head axis 2
@@ -369,38 +373,16 @@ class PlotArea(QtWidgets.QVBoxLayout):
             Display 1/8 of a second
         """
 
+        # experiment reference - 20230603
+        self.experiment = experiment
+
         if experiment.channel_data is None:
             return
 
         self.fig.suptitle(experiment.get_label(), fontsize='medium')
 
-        # display window
-        window_samples = int(experiment.channel_data[0].meta_data.sample_rate_hz / 8)
-        pre_peak_samples = int(window_samples/4)
-        post_peak_sample = int(pre_peak_samples*3)
-
-        # need summary data of a primary channel to determine location of peak
-        # to window the data to 1/8 of a second
-        # the head sensor will not be reliable as its orientation will change
-        # machine sensor orientation is fixed so use that channel to get summary data
-        machine_summary = experiment.channel_data[8].get_channel_summary(method='machine')
-        head_summary = experiment.channel_data[0].get_channel_summary(method='head')
-
-        # window large data vector around peak velocity value
-        # first use the machine sensor, then try the head sensor
-        # otherwise, a meaningless window of data at the start of the vector
-        if machine_summary.peak_index == 0:
-            if head_summary.peak_index == 0:
-                plot_x_start = 0
-                plot_x_end = window_samples
-            else:
-                plot_x_start = head_summary.peak_index - pre_peak_samples - 1
-                plot_x_end = head_summary.peak_index + post_peak_sample - 1
-        else:
-            plot_x_start = machine_summary.peak_index - pre_peak_samples - 1
-            plot_x_end = machine_summary.peak_index + post_peak_sample - 1
-
-        x_data = list(map(lambda x: x/(experiment.channel_data[0].meta_data.sample_rate_hz/1000), range(0, window_samples)))
+        # data display window
+        x_data = list(map(lambda x: x/(experiment.channel_data[0].meta_data.sample_rate_hz/1000), range(0, experiment.window_samples)))
 
         min_y = -150
         max_y = 350
@@ -416,14 +398,11 @@ class PlotArea(QtWidgets.QVBoxLayout):
         y_tick_loc = np.arange(min_y, max_y, 50)
         y_tick_labels = ['', '-100', '', '0', '', '100', '', '200', '', '300']
 
-        # get head resultant, use entire vector so that this resultant can be passed to get_summary()
-        # which works only on full timeseries.
-        # down below where we plot the data we will window the resultant to display window
-        head_resultant = slice.get_resultant(experiment.channel_data, (0, 1, 2))
-
         ##############################################################################################################
         # Head - Coronal
         ##############################################################################################################
+        # axes id used for identification not to be visible to user. callbacks depend on these
+        self.axes[0, 0].set_label('id_head_rot_cor')
         self.axes[0, 0].set_title('Head - Coronal',
                                   pad=3.0, loc='center',
                                   fontdict={'fontsize': self.gui_axes_fontsize, 'fontweight': 'normal', 'color': 'black',
@@ -435,29 +414,31 @@ class PlotArea(QtWidgets.QVBoxLayout):
         self.axes[0, 0].xaxis.set_ticks(x_tick_loc)
         self.axes[0, 0].set_xticklabels(x_tick_labels, fontsize=self.gui_axes_fontsize)
         self.axes[0, 0].set_xlim(x_tick_labels[0], x_tick_labels[-1])
-        self.axes[0, 0].set_ylabel(experiment.channel_data[0].meta_data.eu, fontsize=self.gui_axes_fontsize)
-        y_data = experiment.channel_data[0].get_filtered_data(start=plot_x_start, stop=plot_x_end)
-        self.axes[0, 0].plot(x_data, y_data, color='#000000', linewidth=1, snap=True)
+        self.axes[0, 0].set_ylabel(experiment.get_channel('head_rot_cor').meta_data.eu, fontsize=self.gui_axes_fontsize)
+        y_data = experiment.get_channel('head_rot_cor').get_filtered_data(start=experiment.data_window_start, stop=experiment.data_window_end)
+        self.axes[0, 0].plot(x_data, y_data, color='#000000', linewidth=1, snap=True, label='id_trace')
 
         # only show summary if it is populated
-        if experiment.channel_data[0].summary_data.peak_vel.value is not None:
+        if experiment.get_channel('head_rot_cor').summary_data.peak_vel.value is not None:
             if plot_annotate:
                 # markers and summary value locations visible
                 self.axes[0, 0].plot(
-                    [(head_summary.rise_start_index-plot_x_start)/(experiment.channel_data[0].meta_data.sample_rate_hz/1000), (head_summary.peak_index-plot_x_start)/(experiment.channel_data[0].meta_data.sample_rate_hz/1000), (head_summary.rise_end_index-plot_x_start)/(experiment.channel_data[0].meta_data.sample_rate_hz/1000)],
-                    [y_data[head_summary.rise_start_index-plot_x_start], y_data[head_summary.peak_index-plot_x_start], y_data[head_summary.rise_end_index-plot_x_start]],
+                    [(experiment.head_summary.rise_start_index-experiment.data_window_start)/(experiment.get_channel('head_rot_cor').meta_data.sample_rate_hz/1000), (experiment.head_summary.peak_index-experiment.data_window_start)/(experiment.get_channel('head_rot_cor').meta_data.sample_rate_hz/1000), (experiment.head_summary.rise_end_index-experiment.data_window_start)/(experiment.get_channel('head_rot_cor').meta_data.sample_rate_hz/1000)],
+                    [y_data[experiment.head_summary.rise_start_index-experiment.data_window_start], y_data[experiment.head_summary.peak_index-experiment.data_window_start], y_data[experiment.head_summary.rise_end_index-experiment.data_window_start]],
                     '.',
                     markersize='4',
-                    color="red"
+                    color="red",
+                    # label for program identification
+                    label='id_annot'
                 )
 
-            self.axes[0, 0].add_artist(self.get_summary_box(head_summary))
+            self.axes[0, 0].add_artist(self.get_summary_box(experiment.head_summary))
 
         # animated cursor visible
         self.cursors[0, 0] = AnnotatedCursor(
             line=self.axes[0, 0].lines[0],
             color='#000000',
-            numberformat="{:0.0f} ms; {:0.2f} rad/s",
+            numberformat="{:0.3f} ms; {:0.2f} rad/s",
             dataaxis=plot_cursor_tracks_data,
             textprops={'color': '#000000', 'fontweight': 'normal', 'fontsize': 'small', 'backgroundcolor': '#F3F3F3'},
             ax=self.axes[0, 0],
@@ -480,8 +461,8 @@ class PlotArea(QtWidgets.QVBoxLayout):
         self.axes[1, 0].set_yticklabels(y_tick_labels, fontsize=self.gui_axes_fontsize)
         self.axes[1, 0].xaxis.set_ticks(x_tick_loc)
         self.axes[1, 0].set_xticklabels(x_tick_labels, fontsize=self.gui_axes_fontsize)
-        self.axes[1, 0].set_ylabel(experiment.channel_data[1].meta_data.eu, fontsize=self.gui_axes_fontsize)
-        self.axes[1, 0].plot(x_data, experiment.channel_data[1].get_filtered_data(start=plot_x_start, stop=plot_x_end),
+        self.axes[1, 0].set_ylabel(experiment.get_channel('head_rot_sag').meta_data.eu, fontsize=self.gui_axes_fontsize)
+        self.axes[1, 0].plot(x_data, experiment.get_channel('head_rot_sag').get_filtered_data(start=experiment.data_window_start, stop=experiment.data_window_end),
                              color='green', linewidth=1, snap=True)
         self.axes[1, 0].format_coord = self.format_coord
 
@@ -489,7 +470,7 @@ class PlotArea(QtWidgets.QVBoxLayout):
         self.cursors[1, 0] = AnnotatedCursor(
             line=self.axes[1, 0].lines[0],
             color='#000000',
-            numberformat="{:0.0f} ms; {:0.2f} rad/s",
+            numberformat="{:0.3f} ms; {:0.2f} rad/s",
             dataaxis=plot_cursor_tracks_data,
             textprops={'color': '#000000', 'fontweight': 'normal', 'fontsize': 'small', 'backgroundcolor': '#F3F3F3'},
             ax=self.axes[1, 0],
@@ -509,8 +490,8 @@ class PlotArea(QtWidgets.QVBoxLayout):
         self.axes[2, 0].set_yticklabels(y_tick_labels, fontsize=self.gui_axes_fontsize)
         self.axes[2, 0].xaxis.set_ticks(x_tick_loc)
         self.axes[2, 0].set_xticklabels(x_tick_labels, fontsize=self.gui_axes_fontsize)
-        self.axes[2, 0].set_ylabel(experiment.channel_data[2].meta_data.eu, fontsize=self.gui_axes_fontsize)
-        self.axes[2, 0].plot(x_data, experiment.channel_data[2].get_filtered_data(start=plot_x_start, stop=plot_x_end),
+        self.axes[2, 0].set_ylabel(experiment.get_channel('head_rot_axi').meta_data.eu, fontsize=self.gui_axes_fontsize)
+        self.axes[2, 0].plot(x_data, experiment.get_channel('head_rot_axi').get_filtered_data(start=experiment.data_window_start, stop=experiment.data_window_end),
                              color='orange', linewidth=1, snap=True)
         self.axes[2, 0].format_coord = self.format_coord
 
@@ -518,7 +499,7 @@ class PlotArea(QtWidgets.QVBoxLayout):
         self.cursors[2, 0] = AnnotatedCursor(
             line=self.axes[2, 0].lines[0],
             color='#000000',
-            numberformat="{:0.0f} ms; {:0.2f} rad/s",
+            numberformat="{:0.3f} ms; {:0.2f} rad/s",
             dataaxis=plot_cursor_tracks_data,
             textprops={'color': '#000000', 'fontweight': 'normal', 'fontsize': 'small', 'backgroundcolor': '#F3F3F3'},
             ax=self.axes[2, 0],
@@ -528,6 +509,7 @@ class PlotArea(QtWidgets.QVBoxLayout):
         ##############################################################################################################
         # Head - Resultant
         ##############################################################################################################
+        self.axes[3, 0].set_label('id_head_rot_res')
         self.axes[3, 0].set_title('Head - Rotation Resultant',
                                   pad=3.0, loc='center',
                                   fontdict={'fontsize': self.gui_axes_fontsize, 'fontweight': 'normal', 'color': 'black',
@@ -536,34 +518,32 @@ class PlotArea(QtWidgets.QVBoxLayout):
         self.axes[3, 0].set_ylim(min_y, max_y)
         self.axes[3, 0].yaxis.set_ticks(y_tick_loc)
         self.axes[3, 0].set_yticklabels(y_tick_labels, fontsize=self.gui_axes_fontsize)
-        self.axes[3, 0].set_ylabel(experiment.channel_data[0].meta_data.eu, fontsize=self.gui_axes_fontsize)
-        self.axes[3, 0].plot(x_data, head_resultant[plot_x_start:plot_x_end], color='#db3e27', linewidth=1, snap=True)
+        self.axes[3, 0].set_ylabel(experiment.get_channel('head_rot_cor').meta_data.eu, fontsize=self.gui_axes_fontsize)
+        self.axes[3, 0].plot(x_data, experiment.head_resultant[experiment.data_window_start:experiment.data_window_end], color='#db3e27', linewidth=1, snap=True, label='id_trace')
         self.axes[3, 0].xaxis.set_ticks(x_tick_loc)
         self.axes[3, 0].set_xticklabels(x_tick_labels, fontsize=self.gui_axes_fontsize)
         self.axes[3, 0].xaxis.set_minor_locator(NullLocator())
         self.axes[3, 0].format_coord = self.format_coord
 
-        head_resultant_summary = slice.get_data_summary(method='head',
-                                                        sample_rate_hz=experiment.channel_data[0].meta_data.sample_rate_hz,
-                                                        data=head_resultant)
         # only show summary if it is populated
-        if head_resultant_summary.peak_vel.value is not None:
+        if experiment.head_resultant_summary.peak_vel.value is not None:
             if plot_annotate:
                 self.axes[3, 0].plot(
-                    [(head_resultant_summary.rise_start_index-plot_x_start)/(experiment.channel_data[0].meta_data.sample_rate_hz/1000), (head_resultant_summary.peak_index-plot_x_start)/(experiment.channel_data[0].meta_data.sample_rate_hz/1000), (head_resultant_summary.rise_end_index-plot_x_start)/(experiment.channel_data[0].meta_data.sample_rate_hz/1000)],
-                    [head_resultant[head_resultant_summary.rise_start_index], head_resultant[head_resultant_summary.peak_index], head_resultant[head_resultant_summary.rise_end_index]],
+                    [(experiment.head_resultant_summary.rise_start_index-experiment.data_window_start)/(experiment.get_channel('head_rot_cor').meta_data.sample_rate_hz/1000), (experiment.head_resultant_summary.peak_index-experiment.data_window_start)/(experiment.get_channel('head_rot_cor').meta_data.sample_rate_hz/1000), (experiment.head_resultant_summary.rise_end_index-experiment.data_window_start)/(experiment.get_channel('head_rot_cor').meta_data.sample_rate_hz/1000)],
+                    [experiment.head_resultant[experiment.head_resultant_summary.rise_start_index], experiment.head_resultant[experiment.head_resultant_summary.peak_index], experiment.head_resultant[experiment.head_resultant_summary.rise_end_index]],
                     '.',
                     markersize='4',
-                    color="#000000"
+                    color="#000000",
+                    label='id_annot'
                 )
 
-            self.axes[3, 0].add_artist(self.get_summary_box(head_resultant_summary))
+            self.axes[3, 0].add_artist(self.get_summary_box(experiment.head_resultant_summary))
 
         # animated cursor visible
         self.cursors[3, 0] = AnnotatedCursor(
             line=self.axes[3, 0].lines[0],
             color='#000000',
-            numberformat="{:0.0f} ms; {:0.2f} rad/s",
+            numberformat="{:0.3f} ms; {:0.2f} rad/s",
             dataaxis=plot_cursor_tracks_data,
             textprops={'color': '#000000', 'fontweight': 'normal', 'fontsize': 'small', 'backgroundcolor': '#F3F3F3'},
             ax=self.axes[3, 0],
@@ -573,6 +553,7 @@ class PlotArea(QtWidgets.QVBoxLayout):
         ##############################################################################################################
         # Machine - Primary Axis
         ##############################################################################################################
+        self.axes[0, 1].set_label('id_mach_rot_pri')
         self.axes[0, 1].set_title('Machine - Primary Axis',
                                   pad=3.0, loc='center',
                                   fontdict={'fontsize': self.gui_axes_fontsize, 'fontweight': 'normal', 'color': 'black',
@@ -581,28 +562,29 @@ class PlotArea(QtWidgets.QVBoxLayout):
         self.axes[0, 1].yaxis.set_ticks(y_tick_loc)
         self.axes[0, 1].set_yticklabels(y_tick_labels, fontsize=self.gui_axes_fontsize)
         self.axes[0, 1].set_ylim(min_y, max_y)
-        self.axes[0, 1].set_ylabel(experiment.channel_data[8].meta_data.eu, fontsize=self.gui_axes_fontsize)
+        self.axes[0, 1].set_ylabel(experiment.get_channel('mach_rot_pri').meta_data.eu, fontsize=self.gui_axes_fontsize)
         self.axes[0, 1].xaxis.set_ticks(x_tick_loc)
         self.axes[0, 1].set_xticklabels(x_tick_labels, fontsize=self.gui_axes_fontsize)
-        y_data = experiment.channel_data[8].get_filtered_data(start=plot_x_start, stop=plot_x_end)
-        self.axes[0, 1].plot(x_data, y_data, color='#000000', linewidth=1, snap=True)
-        if experiment.channel_data[8].summary_data.peak_vel.value is not None:
+        y_data = experiment.get_channel('mach_rot_pri').get_filtered_data(start=experiment.data_window_start, stop=experiment.data_window_end)
+        self.axes[0, 1].plot(x_data, y_data, color='#000000', linewidth=1, snap=True, label="id_trace")
+        if experiment.get_channel('mach_rot_pri').summary_data.peak_vel.value is not None:
             if plot_annotate:
                 self.axes[0, 1].plot(
-                    [(machine_summary.rise_start_index-plot_x_start)/(experiment.channel_data[0].meta_data.sample_rate_hz/1000), (machine_summary.peak_index-plot_x_start)/(experiment.channel_data[0].meta_data.sample_rate_hz/1000), (machine_summary.rise_end_index-plot_x_start)/(experiment.channel_data[0].meta_data.sample_rate_hz/1000)],
-                    [y_data[machine_summary.rise_start_index-plot_x_start], y_data[machine_summary.peak_index-plot_x_start], y_data[machine_summary.rise_end_index-plot_x_start]],
+                    [(experiment.machine_summary.rise_start_index-experiment.data_window_start)/(experiment.get_channel('mach_rot_pri').meta_data.sample_rate_hz/1000), (experiment.machine_summary.peak_index-experiment.data_window_start)/(experiment.get_channel('mach_rot_pri').meta_data.sample_rate_hz/1000), (experiment.machine_summary.rise_end_index-experiment.data_window_start)/(experiment.get_channel('mach_rot_pri').meta_data.sample_rate_hz/1000)],
+                    [y_data[experiment.machine_summary.rise_start_index-experiment.data_window_start], y_data[experiment.machine_summary.peak_index-experiment.data_window_start], y_data[experiment.machine_summary.rise_end_index-experiment.data_window_start]],
                     '.',
                     markersize='4',
-                    color="red"
+                    color="red",
+                    label="id_annot"
                 )
 
-            self.axes[0, 1].add_artist(self.get_summary_box(machine_summary))
+            self.axes[0, 1].add_artist(self.get_summary_box(experiment.machine_summary))
 
         # animated cursor visible
         self.cursors[0, 1] = AnnotatedCursor(
             line=self.axes[0, 1].lines[0],
             color='#000000',
-            numberformat="{:0.0f} ms; {:0.2f} rad/s",
+            numberformat="{:0.3f} ms; {:0.2f} rad/s",
             dataaxis=plot_cursor_tracks_data,
             textprops={'color': '#000000', 'fontweight': 'normal', 'fontsize': 'small', 'backgroundcolor': '#F3F3F3'},
             ax=self.axes[0, 1],
@@ -620,15 +602,15 @@ class PlotArea(QtWidgets.QVBoxLayout):
                                             'verticalalignment': 'baseline', 'horizontalalignment': 'center'}
                                   )
         self.axes[1, 1].set_ylim(-500, 500)
-        self.axes[1, 1].set_ylabel(experiment.channel_data[3].meta_data.eu, fontsize=self.gui_axes_fontsize)
+        self.axes[1, 1].set_ylabel(experiment.get_channel('head_tran_cor').meta_data.eu, fontsize=self.gui_axes_fontsize)
         self.axes[1, 1].xaxis.set_ticks(x_tick_loc)
         self.axes[1, 1].set_xticklabels(x_tick_labels, fontsize=self.gui_axes_fontsize)
         self.axes[1, 1].tick_params(labelsize=self.gui_axes_fontsize)
-        self.axes[1, 1].plot(x_data, experiment.channel_data[3].get_filtered_data(start=plot_x_start, stop=plot_x_end),
+        self.axes[1, 1].plot(x_data, experiment.get_channel('head_tran_cor').get_filtered_data(start=experiment.data_window_start, stop=experiment.data_window_end),
                              label='Coronal', color='#000000', linewidth=1, snap=True)
-        self.axes[1, 1].plot(x_data, experiment.channel_data[4].get_filtered_data(start=plot_x_start, stop=plot_x_end),
+        self.axes[1, 1].plot(x_data, experiment.get_channel('head_tran_sag').get_filtered_data(start=experiment.data_window_start, stop=experiment.data_window_end),
                              label='Sagittal', color='green', linewidth=1, snap=True)
-        self.axes[1, 1].plot(x_data, experiment.channel_data[5].get_filtered_data(start=plot_x_start, stop=plot_x_end),
+        self.axes[1, 1].plot(x_data, experiment.get_channel('head_tran_axi').get_filtered_data(start=experiment.data_window_start, stop=experiment.data_window_end),
                              label='Axial', color='orange', linewidth=1, snap=True)
         self.axes[1, 1].format_coord = lambda x, y: '{:0.0f} ms'.format(x) + ', ' + '{:0.2f} g'.format(y)
 
@@ -636,7 +618,7 @@ class PlotArea(QtWidgets.QVBoxLayout):
         self.cursors[1, 1] = AnnotatedCursor(
             line=self.axes[1, 1].lines[0],
             color='#000000',
-            numberformat="{:0.0f} ms; {:0.2f} g",
+            numberformat="{:0.3f} ms; {:0.2f} g",
             dataaxis='off',
             textprops={'color': '#000000', 'fontweight': 'normal', 'fontsize': 'small', 'backgroundcolor': '#F3F3F3'},
             ax=self.axes[1, 1],
@@ -658,10 +640,10 @@ class PlotArea(QtWidgets.QVBoxLayout):
         self.axes[2, 1].set_yticklabels(y_tick_labels, fontsize=self.gui_axes_fontsize)
         self.axes[2, 1].xaxis.set_ticks(x_tick_loc)
         self.axes[2, 1].set_xticklabels(x_tick_labels, fontsize=self.gui_axes_fontsize)
-        self.axes[2, 1].set_ylabel(experiment.channel_data[0].meta_data.eu, fontsize=self.gui_axes_fontsize)
-        self.axes[2, 1].plot(x_data, experiment.channel_data[0].get_filtered_data(start=plot_x_start, stop=plot_x_end),
+        self.axes[2, 1].set_ylabel(experiment.get_channel('head_rot_cor').meta_data.eu, fontsize=self.gui_axes_fontsize)
+        self.axes[2, 1].plot(x_data, experiment.get_channel('head_rot_cor').get_filtered_data(start=experiment.data_window_start, stop=experiment.data_window_end),
                              label='Coronal', color='#000000', linewidth=1, snap=True)
-        self.axes[2, 1].plot(x_data, head_resultant[plot_x_start:plot_x_end],
+        self.axes[2, 1].plot(x_data, experiment.head_resultant[experiment.data_window_start:experiment.data_window_end],
                              label='Rotation Resultant', color='#db3e27', linewidth=1, snap=True)
         self.axes[2, 1].format_coord = self.format_coord
 
@@ -669,7 +651,7 @@ class PlotArea(QtWidgets.QVBoxLayout):
         self.cursors[2, 1] = AnnotatedCursor(
             line=self.axes[2, 1].lines[0],
             color='#000000',
-            numberformat="{:0.0f} ms; {:0.2f} rad/s",
+            numberformat="{:0.3f} ms; {:0.2f} rad/s",
             dataaxis='off',
             textprops={'color': '#000000', 'fontweight': 'normal', 'fontsize': 'small', 'backgroundcolor': '#F3F3F3'},
             ax=self.axes[2, 1],
@@ -689,12 +671,12 @@ class PlotArea(QtWidgets.QVBoxLayout):
         self.axes[3, 1].set_ylim(min_y, max_y)
         self.axes[3, 1].yaxis.set_ticks(y_tick_loc)
         self.axes[3, 1].set_yticklabels(y_tick_labels, fontsize=self.gui_axes_fontsize)
-        self.axes[3, 1].set_ylabel(experiment.channel_data[8].meta_data.eu, fontsize=self.gui_axes_fontsize)
+        self.axes[3, 1].set_ylabel(experiment.get_channel('mach_rot_pri').meta_data.eu, fontsize=self.gui_axes_fontsize)
         self.axes[3, 1].xaxis.set_ticks(x_tick_loc)
         self.axes[3, 1].set_xticklabels(x_tick_labels, fontsize=self.gui_axes_fontsize)
-        self.axes[3, 1].plot(x_data, experiment.channel_data[8].get_filtered_data(start=plot_x_start, stop=plot_x_end),
+        self.axes[3, 1].plot(x_data, experiment.get_channel('mach_rot_pri').get_filtered_data(start=experiment.data_window_start, stop=experiment.data_window_end),
                              label='Machine Primary', color='#000000', linewidth=1, snap=True)
-        self.axes[3, 1].plot(x_data, head_resultant[plot_x_start:plot_x_end],
+        self.axes[3, 1].plot(x_data, experiment.head_resultant[experiment.data_window_start:experiment.data_window_end],
                              label='Head Rotation Resultant', color='#db3e27', linewidth=1, snap=True)
         self.axes[3, 1].format_coord = self.format_coord
 
@@ -702,7 +684,7 @@ class PlotArea(QtWidgets.QVBoxLayout):
         self.cursors[3, 1] = AnnotatedCursor(
             line=self.axes[3, 1].lines[0],
             color='#000000',
-            numberformat="{:0.0f} ms; {:0.2f} rad/s",
+            numberformat="{:0.3f} ms; {:0.2f} rad/s",
             dataaxis='off',
             textprops={'color': '#000000', 'fontweight': 'normal', 'fontsize': 'small', 'backgroundcolor': '#F3F3F3'},
             ax=self.axes[3, 1],
@@ -713,8 +695,7 @@ class PlotArea(QtWidgets.QVBoxLayout):
 
         # add code version to plot. Retreive from caller
         daq_version_str = 'Version: ' + inspect.currentframe().f_back.f_globals['__version__']
-        self.fig.text(0.98, 0.00, daq_version_str, fontsize='x-small', horizontalalignment='right', verticalalignment='bottom',
-                      transform=self.fig.transFigure)
+        self.fig.text(0.98, 0.00, daq_version_str, fontsize='x-small', horizontalalignment='right', verticalalignment='bottom', transform=self.fig.transFigure)
 
         # adjust layout
         # self.fig.subplots_adjust(top=0.938, bottom=0.061, left=0.036, right=0.985, hspace=0.187, wspace=0.094)
@@ -764,6 +745,9 @@ class PlotArea(QtWidgets.QVBoxLayout):
 
         self.fig.suptitle('')
 
+        # reset the crosshair cursors
+        self.cursors = np.empty(self.axes.shape, dtype=AnnotatedCursor)
+
         # refresh canvas
         self.canvas.draw()
 
@@ -795,13 +779,109 @@ class PlotArea(QtWidgets.QVBoxLayout):
         # NOTE: this works as long as my only artists are summary boxes
         anchored_text = AnchoredText(summary_txt, loc='upper right',
                                      prop=dict(family='sans-serif', size=self.gui_axes_fontsize, weight='bold', linespacing=1.0))
+        # give box a label so that we can pick it out for dynamic updates
+        anchored_text.set_label('id_data_summary_box')
         anchored_text.patch.set_boxstyle("round, pad=0.0, rounding_size=0.2")
         anchored_text.patch.set_facecolor('white')
         anchored_text.patch.set_edgecolor('gray')
         anchored_text.patch.set_linewidth(1)
         anchored_text.patch.set_alpha(0.95)
+        # if the peak is user selected we want to indicate that visually
+        if summary.is_peak_user_selected:
+            anchored_text.patch.set_edgecolor('red')
+            anchored_text.patch.set_facecolor('#ffe6e6')
+            anchored_text.patch.set_linestyle('dashed')
 
         return anchored_text
 
-    def format_coord(self, x, y):
-        return '{:0.0f} ms'.format(x) + '; ' + '{:0.2f} rad/s'.format(y)
+    @staticmethod
+    def format_coord(x, y):
+        return 'Cursor {:0.3f} ms'.format(x) + '; ' + '{:0.2f} rad/s'.format(y)
+
+    def user_peak_selected(self, event):
+        """
+        A callback function for user click on plots to manually select
+        a different peak.
+        """
+        from matplotlib.backend_bases import MouseButton
+        if event.button != MouseButton.RIGHT:
+            return
+
+        # filter to axes of interest by axes label id
+        if event.inaxes.get_label() in ['id_head_rot_cor', 'id_mach_rot_pri', 'id_head_rot_res']:
+
+            # data channel id for pulling data from experiment
+            channel_id = "_".join(event.inaxes.get_label().split('_')[1:])
+            # device_id for determining summary data
+            device_id = event.inaxes.get_label().split('_')[1]
+            # axis for distinguishing both axis and single vs resultant
+            axis_id = event.inaxes.get_label().split('_')[3]
+
+            if axis_id == 'res':
+                if device_id == 'head':
+                    y_data_full = self.experiment.head_resultant
+                    summary_data = self.experiment.head_resultant_summary
+                else:
+                    y_data_full = self.experiment.machine_resultant
+                    summary_data = self.experiment.machine_resultant_summary
+            else:
+                y_data_full = self.experiment.get_channel(channel_id).get_filtered_data()
+                summary_data = self.experiment.get_channel(channel_id).summary_data
+
+            for line in event.inaxes.lines:
+                # use trace plot to select peak
+                if line.get_label() == 'id_trace':
+                    # let user select on x axis values alone to make it easier
+                    # and because these are unique ascending values
+                    x_index = np.searchsorted(line.get_xdata(), event.xdata)
+                    # to be consistent with default peak_index,
+                    # adjust user selected peak value to make it relative to all data
+                    # not just the windowed data
+                    # If the user exports the windowed data the peak_index is incorrect for that
+                    user_selected_peak_index = x_index + self.experiment.data_window_start
+                    # update the channel summary values relevant to a new peak_index
+                    slice.set_user_selected_peak(
+                        summary_data,
+                        y_data_full,
+                        self.experiment.get_channel('head_rot_cor').meta_data.sample_rate_hz,
+                        user_selected_peak_index
+                    )
+                    # update the channel data in the experiment so that if the user
+                    # exports data it will reflect the user peak selected
+                    if axis_id == 'res':
+                        if device_id == 'head':
+                            self.experiment.head_resultant_summary = summary_data
+                        else:
+                            self.experiment.machine_resultant_summary = summary_data
+                    else:
+                        self.experiment.get_channel(channel_id).summary_data = summary_data
+
+                    for plot_artist in event.inaxes.artists:
+                        # find the data summary box
+                        if plot_artist.get_label() == 'id_data_summary_box':
+                            # clear the box and add a new one with update values
+                            event.inaxes.artists[0].remove()
+                            summary_box = self.get_summary_box(summary_data)
+                            event.inaxes.add_artist(summary_box)
+                            # we are done with artist objects
+                            break
+
+                # find the annotation plot and assume it is after the trace plot
+                if line.get_label() == 'id_annot':
+                    # update the data for the annotation plot
+                    line.set_data([(summary_data.rise_start_index - self.experiment.data_window_start) /
+                                   (self.experiment.get_channel('head_rot_cor').meta_data.sample_rate_hz / 1000),
+                                   (summary_data.peak_index - self.experiment.data_window_start) /
+                                   (self.experiment.get_channel('head_rot_cor').meta_data.sample_rate_hz / 1000),
+                                   (summary_data.rise_end_index - self.experiment.data_window_start) /
+                                   (self.experiment.get_channel('head_rot_cor').meta_data.sample_rate_hz / 1000)],
+                                   [y_data_full[summary_data.rise_start_index],
+                                   y_data_full[summary_data.peak_index],
+                                   y_data_full[summary_data.rise_end_index]
+                                  ])
+
+                    # after annot plot we are done
+                    break
+
+            # refresh canvas to make summary box and plot changes visible
+            self.canvas.draw()

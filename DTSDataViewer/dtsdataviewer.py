@@ -10,7 +10,7 @@ from .experiment import Experiment
 from .plotarea import PlotArea
 
 
-__version__ = '1.0.5'
+__version__ = '2.0.0'
 
 
 class GUI(QtWidgets.QMainWindow):
@@ -25,6 +25,9 @@ class GUI(QtWidgets.QMainWindow):
         self.plotAnnotationMenu = None
         self.plot_cursor_tracks_data = None
         self.plotCursorTrackDataMenu = None
+
+        # class member for runtime access
+        self.exportFileAction = None
 
         # get app settings
         self.read_app_settings()
@@ -53,9 +56,16 @@ class GUI(QtWidgets.QMainWindow):
         openFileAction.setStatusTip('Load DTS Data File')
         openFileAction.triggered.connect(self.load_trace)
 
+        self.exportFileAction = QtWidgets.QAction('&Export Data', self)
+        self.exportFileAction.setShortcut('Ctrl+E')
+        self.exportFileAction.setStatusTip('Export Trace and Summary Data')
+        self.exportFileAction.triggered.connect(self.export)
+        self.exportFileAction.setEnabled(False)
+
         menubar = self.menuBar()
         fileMenu = menubar.addMenu('&File')
         fileMenu.addAction(openFileAction)
+        fileMenu.addAction(self.exportFileAction)
         fileMenu.addAction(clearTraceAction)
         fileMenu.addAction(exitAction)
 
@@ -86,14 +96,18 @@ class GUI(QtWidgets.QMainWindow):
         # add menu items
         a = ag.addAction(QtWidgets.QAction('On', self.plotCursorTrackDataMenu, checkable=True))
         a.setData('x')
-        if self.plot_cursor_tracks_data:
+        if self.plot_cursor_tracks_data == 'x':
             a.setChecked(True)
+        else:
+            a.setChecked(False)
         self.plotCursorTrackDataMenu.addAction(a)
 
         a = ag.addAction(QtWidgets.QAction('Off', self.plotCursorTrackDataMenu, checkable=True))
         a.setData('off')
-        if not self.plot_cursor_tracks_data:
+        if self.plot_cursor_tracks_data == 'off':
             a.setChecked(True)
+        else:
+            a.setChecked(False)
         self.plotCursorTrackDataMenu.addAction(a)
         self.plotCursorTrackDataMenu.triggered.connect(self.plotCursorTrackDataMenu_changed)
 
@@ -126,6 +140,11 @@ class GUI(QtWidgets.QMainWindow):
         aboutDlg.setText("Version: " + __version__)
         aboutDlg.setInformativeText("Click 'Show Details' for a list of changes.")
         aboutDlg.setDetailedText("""Changes:
+=== 2.0.0 ===
+ - Add feature to manually select peak
+ - Add data export
+ - Extend precision of crosshair coordinate display
+ 
 === 1.0.4 ===
  - Improve settings for Windows
  - Add menu to toggle cursor tracking on plots
@@ -240,7 +259,8 @@ class GUI(QtWidgets.QMainWindow):
         experimentDlg.setLayout(dlgLayout)
         experimentDlg.exec_()
 
-    def display_msg(self, txt, iTxt, dTxt):
+    @staticmethod
+    def display_msg(txt, iTxt, dTxt):
         msg = QtWidgets.QMessageBox()
         msg.setIcon(QtWidgets.QMessageBox.Information)
         msg.setText(txt)
@@ -261,6 +281,8 @@ class GUI(QtWidgets.QMainWindow):
         # if reply == QtWidgets.QMessageBox.Yes:
         self.experiment = Experiment()
         self.plot_area.clear_plot()
+        # with data cleared, disable export of data menu item
+        self.exportFileAction.setEnabled(False)
         self.setWindowTitle('DTS Data Viewer')
 
     def plotCursorTrackDataMenu_changed(self):
@@ -303,16 +325,31 @@ class GUI(QtWidgets.QMainWindow):
                 self.statusBar().showMessage('Ready')
 
                 self.setWindowTitle('DTS Data Viewer - ' + self.experiment.get_label())
+                # with data loaded, enable export of data menu item
+                self.exportFileAction.setEnabled(True)
 
         except Exception as e:
             self.display_msg("Error:", "Loading Trace file", str(e))
             return
 
-    def save_trace(self):
+    def export(self):
         """ 
-        write out trace data in voltage 
+        Export experiment data files
         """
-        self.experiment.save(os.path.join(os.getcwd(), "data", self.experiment.file_name))
+        try:
+
+            dname = QtWidgets.QFileDialog.getExistingDirectory(self,
+                                                               'Select Export Directory',
+                                                               self.experiment.lastExportPath,
+                                                               options=QtWidgets.QFileDialog.ShowDirsOnly)
+            if len(dname):
+                self.experiment.export(dname)
+
+        except Exception as e:
+            self.display_msg("Error:", "Could not select export directory", str(e))
+            return
+
+
 
     def read_app_settings(self):
         """
@@ -330,6 +367,8 @@ class GUI(QtWidgets.QMainWindow):
         os.chdir(script_home)
         # point experiment output to the data subdirectory
         self.experiment.lastDataPath = self.settings.value('lastDataPath', os.path.join(script_home, 'data'))
+        # point experiment export
+        self.experiment.lastExportPath = self.settings.value('lastExportPath', os.path.join(script_home, 'data'))
 
     def save_app_settings(self):
         """
@@ -339,6 +378,7 @@ class GUI(QtWidgets.QMainWindow):
         self.settings.setValue('plot_annotate', self.plot_annotate)
         self.settings.setValue('plot_cursor_tracks_data', self.plot_cursor_tracks_data)
         self.settings.setValue('lastDataPath', self.experiment.lastDataPath)
+        self.settings.setValue('lastExportPath', self.experiment.lastExportPath)
         # this writes to native storage
         del self.settings
 
