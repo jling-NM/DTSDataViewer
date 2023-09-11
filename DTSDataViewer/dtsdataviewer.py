@@ -25,6 +25,8 @@ class GUI(QtWidgets.QMainWindow):
         self.plotAnnotationMenu = None
         self.plot_cursor_tracks_data = None
         self.plotCursorTrackDataMenu = None
+        self.exportWindowAnchorMenu = None
+        self.export_window_anchor = None
 
         # class member for runtime access
         self.exportFileAction = None
@@ -111,6 +113,23 @@ class GUI(QtWidgets.QMainWindow):
         self.plotCursorTrackDataMenu.addAction(a)
         self.plotCursorTrackDataMenu.triggered.connect(self.plotCursorTrackDataMenu_changed)
 
+        # export window anchor
+        self.exportWindowAnchorMenu = optMenu.addMenu('Export Window Anchor:')
+        # group so options are exclusive
+        ag = QtWidgets.QActionGroup(self.exportWindowAnchorMenu)
+        # add menu items
+        a = ag.addAction(QtWidgets.QAction('Peak Velocity', self.exportWindowAnchorMenu, checkable=True))
+        a.setData('peak')
+        if self.export_window_anchor == 'peak':
+            a.setChecked(True)
+        self.exportWindowAnchorMenu.addAction(a)
+
+        a = ag.addAction(QtWidgets.QAction('Rise Start', self.exportWindowAnchorMenu, checkable=True))
+        a.setData('rise_start')
+        if self.export_window_anchor == 'rise_start':
+            a.setChecked(True)
+        self.exportWindowAnchorMenu.addAction(a)
+        self.exportWindowAnchorMenu.triggered.connect(self.exportWindowAnchorMenu_changed)
 
         # about menu
         abtMenu = menubar.addMenu('&About')
@@ -310,6 +329,11 @@ class GUI(QtWidgets.QMainWindow):
                 self.plot_area.plot(self.experiment, self.plot_annotate, self.plot_cursor_tracks_data)
                 self.statusBar().showMessage('Ready')
 
+    def exportWindowAnchorMenu_changed(self):
+        for action in self.exportWindowAnchorMenu.actions():
+            if action.isChecked():
+                self.export_window_anchor = action.data()
+
     def load_trace(self):
         """
         Read DTS data file and display in plot
@@ -347,10 +371,10 @@ class GUI(QtWidgets.QMainWindow):
                                                                self.experiment.lastExportPath,
                                                                options=QtWidgets.QFileDialog.ShowDirsOnly)
             if len(dname):
-                self.experiment.export(dname)
+                self.experiment.export(dname, window_anchor=self.export_window_anchor)
 
         except Exception as e:
-            self.display_msg("Error:", "Could not select export directory", str(e))
+            self.display_msg("Error:", "Error exporting data", str(e))
             return
 
 
@@ -373,6 +397,8 @@ class GUI(QtWidgets.QMainWindow):
         self.experiment.lastDataPath = self.settings.value('lastDataPath', os.path.join(script_home, 'data'))
         # point experiment export
         self.experiment.lastExportPath = self.settings.value('lastExportPath', os.path.join(script_home, 'data'))
+        # window anchor for exported data
+        self.export_window_anchor = self.settings.value('export_window_anchor', 'peak', type=str)
 
     def save_app_settings(self):
         """
@@ -383,6 +409,8 @@ class GUI(QtWidgets.QMainWindow):
         self.settings.setValue('plot_cursor_tracks_data', self.plot_cursor_tracks_data)
         self.settings.setValue('lastDataPath', self.experiment.lastDataPath)
         self.settings.setValue('lastExportPath', self.experiment.lastExportPath)
+        self.settings.setValue('export_window_anchor', self.export_window_anchor)
+
         # this writes to native storage
         del self.settings
 

@@ -120,7 +120,7 @@ class Experiment:
 
         return single_channel_data - np.mean(single_channel_data[baseline_index_start:baseline_index_end])
 
-    def export(self, export_path, window_anchor: str = 'rise_start'):
+    def export(self, export_path, window_anchor: str = 'peak'):
         """
         Export windowed data and summaries.
         'window_anchor' string can be 'peak' or 'rise_start' and determines how data window
@@ -130,8 +130,10 @@ class Experiment:
         if (window_anchor != 'peak') and (window_anchor != 'rise_start'):
             raise ValueError("window_anchor must be 'peak' or 'rise_start'")
 
+        # default anchor is peak velocity
         export_window_start = self.data_window_start
         export_window_end = self.data_window_end
+
         if window_anchor == 'rise_start':
             pre_peak_samples = int((self.window_samples / 4)/2)
             post_peak_sample = int(((self.window_samples / 4) * 3) + (self.window_samples / 4)/2)
