@@ -77,6 +77,7 @@ class Experiment:
         experiment.window_samples = int(experiment.get_channel('head_rot_cor').meta_data.sample_rate_hz / 8)
         pre_peak_samples = int(experiment.window_samples/4)
         post_peak_sample = int(pre_peak_samples*3)
+        #print(f"pre:{pre_peak_samples}, post:{post_peak_sample}")
 
         # window large data vector around peak velocity value
         # first use the machine sensor, then try the head sensor
@@ -91,7 +92,8 @@ class Experiment:
         else:
             experiment.data_window_start = experiment.machine_summary.peak_index - pre_peak_samples - 1
             experiment.data_window_end = experiment.machine_summary.peak_index + post_peak_sample - 1
-            
+
+
         return experiment
 
     def get_channel(self, channel_map_key):
@@ -103,15 +105,52 @@ class Experiment:
 
         return self.channel_data[self.channel_map[channel_map_key]]
 
-    def export(self, export_path):
+    def remove_baseline_offset(self, single_channel_data, baseline_index_start=0, baseline_index_end=500) -> np.ndarray:
         """
-        Export windowed data and summaries
+        Remove baseline offset from a single channel array using the start and end to define location of baseline
+        measure.
+        @return: array of same size with baseline subtracted
         """
+
+        if (not isinstance(baseline_index_start, int)) or (not isinstance(baseline_index_end, int)):
+            raise ValueError("baseline_index_start and baseline_index_end values must be integers")
+
+        if baseline_index_end < baseline_index_start:
+            raise ValueError("baseline_index_end value must be greater than baseline_index_start")
+
+        return single_channel_data - np.mean(single_channel_data[baseline_index_start:baseline_index_end])
+
+    def export(self, export_path, window_anchor: str = 'rise_start'):
+        """
+        Export windowed data and summaries.
+        'window_anchor' string can be 'peak' or 'rise_start' and determines how data window
+        is centered. By default, data window in centered on peak for viewing in dataviewer.
+        """
+
+        if (window_anchor != 'peak') and (window_anchor != 'rise_start'):
+            raise ValueError("window_anchor must be 'peak' or 'rise_start'")
+
+        export_window_start = self.data_window_start
+        export_window_end = self.data_window_end
+        if window_anchor == 'rise_start':
+            pre_peak_samples = int((self.window_samples / 4)/2)
+            post_peak_sample = int(((self.window_samples / 4) * 3) + (self.window_samples / 4)/2)
+
+            if self.machine_summary.rise_start_index == 0:
+                if self.head_summary.rise_start_index == 0:
+                    export_window_start = 0
+                    export_window_end = self.window_samples
+                else:
+                    export_window_start = self.head_summary.rise_start_index - pre_peak_samples - 1
+                    export_window_end = self.head_summary.rise_start_index + post_peak_sample - 1
+            else:
+                export_window_start = self.machine_summary.rise_start_index - pre_peak_samples - 1
+                export_window_end = self.machine_summary.rise_start_index + post_peak_sample - 1
 
         # export raw scaled data
         np.savetxt(
             os.path.join(export_path, "_".join([self.get_label(), 'export', 'raw.csv'])),
-            np.array(list(map(lambda x: x.scaled_data[self.data_window_start:self.data_window_end], self.channel_data))).transpose(),
+            np.array(list(map(lambda x: self.remove_baseline_offset(x.scaled_data[export_window_start:export_window_end]), self.channel_data))).transpose(),
             fmt='%.11f',
             delimiter=',',
             header=",".join(self.channel_map.keys())
@@ -120,7 +159,7 @@ class Experiment:
         # export filtered data
         np.savetxt(
             os.path.join(export_path, "_".join([self.get_label(), 'export', 'filtered.csv'])),
-            np.array(list(map(lambda x: x.get_filtered_data(start=self.data_window_start, stop=self.data_window_end), self.channel_data))).transpose(),
+            np.array(list(map(lambda x: self.remove_baseline_offset(x.get_filtered_data(start=export_window_start, stop=export_window_end)), self.channel_data))).transpose(),
             fmt='%.11f',
             delimiter=',',
             header=",".join(self.channel_map.keys())

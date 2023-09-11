@@ -6,11 +6,11 @@ import os
 import sys
 
 from PyQt5 import QtWidgets, QtGui, QtCore
-from .experiment import Experiment
-from .plotarea import PlotArea
+from DTSDataViewer.experiment import Experiment
+from DTSDataViewer.plotarea import PlotArea
 
 
-__version__ = '2.0.0'
+__version__ = '2.1.0'
 
 
 class GUI(QtWidgets.QMainWindow):
@@ -140,6 +140,10 @@ class GUI(QtWidgets.QMainWindow):
         aboutDlg.setText("Version: " + __version__)
         aboutDlg.setInformativeText("Click 'Show Details' for a list of changes.")
         aboutDlg.setDetailedText("""Changes:
+=== 2.1.0 ===
+ - Exported data now has baseline offset removed from both raw and filtered data. GUI display does not have baseline removed.
+ - Exported data is windowed around peak velocity be default be user can specify 'rise_start' instead to window around that.
+ 
 === 2.0.0 ===
  - Add feature to manually select peak
  - Add data export

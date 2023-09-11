@@ -12,7 +12,7 @@ from matplotlib.figure import Figure
 from matplotlib.ticker import NullLocator
 from matplotlib.widgets import Cursor
 from dts_file_reader import slice
-from .experiment import Experiment
+from DTSDataViewer.experiment import Experiment
 
 
 class AnnotatedCursor(Cursor):
@@ -381,9 +381,9 @@ class PlotArea(QtWidgets.QVBoxLayout):
 
         self.fig.suptitle(experiment.get_label(), fontsize='medium')
 
+
         # data display window
         x_data = list(map(lambda x: x/(experiment.channel_data[0].meta_data.sample_rate_hz/1000), range(0, experiment.window_samples)))
-
         min_y = -150
         max_y = 350
         x_tick_loc = list(map(lambda x: x/(experiment.channel_data[0].meta_data.sample_rate_hz/1000), np.arange(0,
