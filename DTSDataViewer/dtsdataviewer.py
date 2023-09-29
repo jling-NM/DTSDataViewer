@@ -10,7 +10,7 @@ from DTSDataViewer.experiment import Experiment
 from DTSDataViewer.plotarea import PlotArea
 
 
-__version__ = '2.1.0'
+__version__ = '2.2.0'
 
 
 class GUI(QtWidgets.QMainWindow):
@@ -159,9 +159,15 @@ class GUI(QtWidgets.QMainWindow):
         aboutDlg.setText("Version: " + __version__)
         aboutDlg.setInformativeText("Click 'Show Details' for a list of changes.")
         aboutDlg.setDetailedText("""Changes:
+=== 2.2.0 ===
+ - GUI display now has baseline removed
+ - Exported summary file reformated to wide format
+ - Default window anchor is now rise_start instead of peak velocity
+ - Fix premature drop to "max velocity" in set_peak()
+
 === 2.1.0 ===
- - Exported data now has baseline offset removed from both raw and filtered data. GUI display does not have baseline removed.
- - Exported data is windowed around peak velocity be default be user can specify 'rise_start' instead to window around that.
+ - Exported data now has baseline offset removed from both raw and filtered data. GUI display does not have baseline removed
+ - Exported data is windowed around peak velocity by default but user can specify 'rise_start' instead to window around that
  
 === 2.0.0 ===
  - Add feature to manually select peak
@@ -398,7 +404,7 @@ class GUI(QtWidgets.QMainWindow):
         # point experiment export
         self.experiment.lastExportPath = self.settings.value('lastExportPath', os.path.join(script_home, 'data'))
         # window anchor for exported data
-        self.export_window_anchor = self.settings.value('export_window_anchor', 'peak', type=str)
+        self.export_window_anchor = self.settings.value('export_window_anchor', 'rise_start', type=str)
 
     def save_app_settings(self):
         """

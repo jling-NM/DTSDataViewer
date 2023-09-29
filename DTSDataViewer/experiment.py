@@ -45,8 +45,13 @@ class Experiment:
         name for experiment
         """
         # remove file extension
-        # and remove head
         return self.file_name.split('.')[0]
+
+    def get_id(self):
+        """
+        subject id for experiment
+        """
+        return self.file_name.split('.')[0].split('_')[0]
 
     @classmethod
     def load(cls, data_file_path):
@@ -68,16 +73,17 @@ class Experiment:
         # down below where we plot the data we will window the resultant to display window
         experiment.head_resultant = slice.get_resultant(experiment.channel_data, (0, 1, 2))
         experiment.head_resultant_summary = slice.get_data_summary(method='head',
-                                                        sample_rate_hz=experiment.get_channel('head_rot_cor').meta_data.sample_rate_hz,
-                                                        data=experiment.head_resultant)
-        
+                                                                   sample_rate_hz=experiment.get_channel(
+                                                                       'head_rot_cor').meta_data.sample_rate_hz,
+                                                                   data=experiment.head_resultant)
+
         # data display/export window
         experiment.data_window_start = 0
         experiment.data_window_end = 0
         experiment.window_samples = int(experiment.get_channel('head_rot_cor').meta_data.sample_rate_hz / 8)
-        pre_peak_samples = int(experiment.window_samples/4)
-        post_peak_sample = int(pre_peak_samples*3)
-        #print(f"pre:{pre_peak_samples}, post:{post_peak_sample}")
+        pre_peak_samples = int(experiment.window_samples / 4)
+        post_peak_sample = int(pre_peak_samples * 3)
+        # print(f"pre:{pre_peak_samples}, post:{post_peak_sample}")
 
         # window large data vector around peak velocity value
         # first use the machine sensor, then try the head sensor
@@ -93,7 +99,6 @@ class Experiment:
             experiment.data_window_start = experiment.machine_summary.peak_index - pre_peak_samples - 1
             experiment.data_window_end = experiment.machine_summary.peak_index + post_peak_sample - 1
 
-
         return experiment
 
     def get_channel(self, channel_map_key):
@@ -105,22 +110,7 @@ class Experiment:
 
         return self.channel_data[self.channel_map[channel_map_key]]
 
-    def remove_baseline_offset(self, single_channel_data, baseline_index_start=0, baseline_index_end=500) -> np.ndarray:
-        """
-        Remove baseline offset from a single channel array using the start and end to define location of baseline
-        measure.
-        @return: array of same size with baseline subtracted
-        """
-
-        if (not isinstance(baseline_index_start, int)) or (not isinstance(baseline_index_end, int)):
-            raise ValueError("baseline_index_start and baseline_index_end values must be integers")
-
-        if baseline_index_end < baseline_index_start:
-            raise ValueError("baseline_index_end value must be greater than baseline_index_start")
-
-        return single_channel_data - np.mean(single_channel_data[baseline_index_start:baseline_index_end])
-
-    def export(self, export_path, window_anchor: str = 'peak'):
+    def export(self, export_path, window_anchor: str = 'rise_start'):
         """
         Export windowed data and summaries.
         'window_anchor' string can be 'peak' or 'rise_start' and determines how data window
@@ -135,8 +125,8 @@ class Experiment:
         export_window_end = self.data_window_end
 
         if window_anchor == 'rise_start':
-            pre_peak_samples = int((self.window_samples / 4)/2)
-            post_peak_sample = int(((self.window_samples / 4) * 3) + (self.window_samples / 4)/2)
+            pre_peak_samples = int((self.window_samples / 4) / 2)
+            post_peak_sample = int(((self.window_samples / 4) * 3) + (self.window_samples / 4) / 2)
 
             if self.machine_summary.rise_start_index == 0:
                 if self.head_summary.rise_start_index == 0:
@@ -152,7 +142,8 @@ class Experiment:
         # export raw scaled data
         np.savetxt(
             os.path.join(export_path, "_".join([self.get_label(), 'export', 'raw.csv'])),
-            np.array(list(map(lambda x: self.remove_baseline_offset(x.scaled_data[export_window_start:export_window_end]), self.channel_data))).transpose(),
+            np.array(list(map(lambda x: x.scaled_data[export_window_start:export_window_end],
+                          self.channel_data))).transpose(),
             fmt='%.11f',
             delimiter=',',
             header=",".join(self.channel_map.keys())
@@ -161,17 +152,50 @@ class Experiment:
         # export filtered data
         np.savetxt(
             os.path.join(export_path, "_".join([self.get_label(), 'export', 'filtered.csv'])),
-            np.array(list(map(lambda x: self.remove_baseline_offset(x.get_filtered_data(start=export_window_start, stop=export_window_end)), self.channel_data))).transpose(),
+            np.array(list(map(lambda x: x.get_filtered_data(start=export_window_start, stop=export_window_end),
+                          self.channel_data))).transpose(),
             fmt='%.11f',
             delimiter=',',
             header=",".join(self.channel_map.keys())
         )
 
         # export three summaries
-        with open(os.path.join(export_path, "_".join([self.get_label(), 'export', 'summary.csv'])), "w") as summary_file:
-            summary_file.write("summary,peak_index,rise_start_index,rise_end_index,peak_vel,time_to_peak,decel_time,fwhm,delta_t,rise_to_peak_slope,is_peak_user_selected\n")
+        with open(os.path.join(export_path, "_".join([self.get_label(), 'export', 'summary.csv'])),
+                  "w") as summary_file:
+            summary_file.write("id,"
+                               "peak_index_hc,"
+                               "rise_start_index_hc,"
+                               "rise_end_index_hc,"
+                               "peak_vel_hc,"
+                               "time_to_peak_hc,"
+                               "decel_time_hc,"
+                               "fwhm_hc,"
+                               "delta_t_hc,"
+                               "rise_to_peak_slope_hc,"
+                               "is_peak_user_selected_hc,"
+                               "peak_index_hr,"
+                               "rise_start_index_hr,"
+                               "rise_end_index_hr,"
+                               "peak_vel_hr,"
+                               "time_to_peak_hr,"
+                               "decel_time_hr,"
+                               "fwhm_hr,"
+                               "delta_t_hr,"
+                               "rise_to_peak_slope_hr,"
+                               "is_peak_user_selected_hr,"
+                               "peak_index_mc,"
+                               "rise_start_index_mc,"
+                               "rise_end_index_mc,"
+                               "peak_vel_mc,"
+                               "time_to_peak_mc,"
+                               "decel_time_mc,"
+                               "fwhm_mc,"
+                               "delta_t_mc,"
+                               "rise_to_peak_slope_mc,"
+                               "is_peak_user_selected_mc"
+                               "\n")
 
-            summary_file.write(",".join(['head_rot_cor',
+            summary_file.write(",".join([self.get_id(),
                                          str(self.get_channel('head_rot_cor').summary_data.peak_index),
                                          str(self.get_channel('head_rot_cor').summary_data.rise_start_index),
                                          str(self.get_channel('head_rot_cor').summary_data.rise_end_index),
@@ -182,11 +206,6 @@ class Experiment:
                                          str(self.get_channel('head_rot_cor').summary_data.delta_t.value),
                                          str(self.get_channel('head_rot_cor').summary_data.rise_to_peak_slope),
                                          str(bool(self.get_channel('head_rot_cor').summary_data.is_peak_user_selected)),
-                                         '\n'
-                                        ])
-                               )
-
-            summary_file.write(",".join(['head_resultant',
                                          str(self.head_resultant_summary.peak_index),
                                          str(self.head_resultant_summary.rise_start_index),
                                          str(self.head_resultant_summary.rise_end_index),
@@ -197,11 +216,6 @@ class Experiment:
                                          str(self.head_resultant_summary.delta_t.value),
                                          str(self.head_resultant_summary.rise_to_peak_slope),
                                          str(bool(self.head_resultant_summary.is_peak_user_selected)),
-                                         '\n'
-                                        ])
-                               )
-
-            summary_file.write(",".join(['mach_rot_pri',
                                          str(self.machine_summary.peak_index),
                                          str(self.machine_summary.rise_start_index),
                                          str(self.machine_summary.rise_end_index),
@@ -213,7 +227,7 @@ class Experiment:
                                          str(self.machine_summary.rise_to_peak_slope),
                                          str(bool(self.machine_summary.is_peak_user_selected)),
                                          '\n'
-                                        ])
+                                         ])
                                )
 
         self.lastExportPath = export_path
