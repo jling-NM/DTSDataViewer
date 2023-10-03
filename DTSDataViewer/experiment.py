@@ -225,8 +225,7 @@ class Experiment:
                                          str(self.machine_summary.fwhm.value),
                                          str(self.machine_summary.delta_t.value),
                                          str(self.machine_summary.rise_to_peak_slope),
-                                         str(bool(self.machine_summary.is_peak_user_selected)),
-                                         '\n'
+                                         str(bool(self.machine_summary.is_peak_user_selected))+'\n'
                                          ])
                                )
 
